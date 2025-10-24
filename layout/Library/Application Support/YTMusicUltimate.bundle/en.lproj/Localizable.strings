@@ -41,6 +41,9 @@
 "SEEK_TIME_FOOTER" = "Select a seek time in seconds\n\nDefaults:\nSeek backward = 10 sec.\nSeek forward = 30 sec.\n\nSkip to the next and previous tracks available by long-pressing the buttons.";
 "DEFAULT" = "Default";
 
+"CROSSFADE" = "Crossfade";
+"CROSSFADE_FOOTER" = "When the song is about to end, it will fade out and the next song will fade in.";
+
 "THEME_SETTINGS" = "Theme options";
 "OLED_DARK_THEME" = "OLED Dark Theme";
 "OLED_DARK_THEME_DESC" = "Enables OLED Dark Theme";

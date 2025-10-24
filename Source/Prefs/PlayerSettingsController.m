@@ -26,7 +26,7 @@
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 4;
+    return 5;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -36,6 +36,8 @@
         return 3;
     } if (section == 3) {
         return 2;
+    } if (section == 4) {
+        return 2;
     } else {
         return 1;
     }
@@ -44,6 +46,8 @@
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == 3) {
         return LOC(@"SEEK_TIME_FOOTER");
+    } if (section == 4) {
+        return LOC(@"CROSSFADE_FOOTER");
     }
 
     return nil;
@@ -196,6 +200,41 @@
         }
     }
 
+    if (indexPath.section == 4) {
+        if (indexPath.row == 0) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"crossfadeCell"];
+
+            cell.textLabel.text = LOC(@"CROSSFADE");
+            cell.textLabel.numberOfLines = 0;
+
+            ABCSwitch *crossfade = [[NSClassFromString(@"ABCSwitch") alloc] init];
+            crossfade.onTintColor = [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
+            [crossfade addTarget:self action:@selector(toggleCrossfade:) forControlEvents:UIControlEventValueChanged];
+            crossfade.on = [YTMUltimateDict[@"crossfade"] boolValue];
+            cell.accessoryView = crossfade;
+
+            return cell;
+        }
+
+        if (indexPath.row == 1) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"crossfadeDurationCell"];
+
+            UISlider *slider = [[UISlider alloc] init];
+            slider.minimumValue = 1;
+            slider.maximumValue = 10;
+            slider.value = [YTMUltimateDict[@"crossfadeDuration"] floatValue];
+            [slider addTarget:self action:@selector(crossfadeDurationChanged:) forControlEvents:UIControlEventValueChanged];
+
+            [cell.contentView addSubview:slider];
+            slider.translatesAutoresizingMaskIntoConstraints = NO;
+            [slider.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor].active = YES;
+            [slider.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:15].active = YES;
+            [slider.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-15].active = YES;
+
+            return cell;
+        }
+    }
+
     return cell;
 }
 
@@ -259,6 +298,22 @@
     NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
 
     [YTMUltimateDict setObject:@(sender.selectedSegmentIndex) forKey:@"seekTime"];
+    [defaults setObject:YTMUltimateDict forKey:@"YTMUltimate"];
+}
+
+- (void)toggleCrossfade:(UISwitch *)sender {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
+
+    [YTMUltimateDict setObject:@([sender isOn]) forKey:@"crossfade"];
+    [defaults setObject:YTMUltimateDict forKey:@"YTMUltimate"];
+}
+
+- (void)crossfadeDurationChanged:(UISlider *)sender {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
+
+    [YTMUltimateDict setObject:@(roundf(sender.value)) forKey:@"crossfadeDuration"];
     [defaults setObject:YTMUltimateDict forKey:@"YTMUltimate"];
 }
 
