@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h> // ADDED: Required for associated objects
 
 static BOOL YTMU(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
@@ -11,18 +12,37 @@ static BOOL selectableLyrics = YTMU(@"YTMUltimateIsEnabled") && YTMU(@"selectabl
 @end
 
 @interface YTMLightweightMusicDescriptionShelfCell : UIView
-@property (retain, nonatomic) UITextView *lyrics;
+@property (retain, nonatomic) UITextView *lyrics; // Keep this declaration for the compiler
 @end
+
+// Define a static key for associated objects
+static void *kSelectableLyricsKey = &kSelectableLyricsKey;
 
 %hook YTMLightweightMusicDescriptionShelfCell
 
-%property (retain, nonatomic) UITextView *lyrics;
+// REMOVED: %property (retain, nonatomic) UITextView *lyrics;
+
+// ADDED: Manual getter implementation using associated objects
+%new
+- (UITextView *)lyrics {
+    return objc_getAssociatedObject(self, kSelectableLyricsKey);
+}
+
+// ADDED: Manual setter implementation using associated objects
+%new
+- (void)setLyrics:(UITextView *)lyrics {
+    objc_setAssociatedObject(self, kSelectableLyricsKey, lyrics, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 
 - (id)initWithFrame:(CGRect)frame {
     self = %orig;
     if (self && selectableLyrics) {
         UIView *container = [self valueForKey:@"_descriptionContainer"];
-        self.lyrics = [[UITextView alloc] init];
+        
+        // This line now calls the manually implemented setter
+        self.lyrics = [[UITextView alloc] init]; 
+        
         self.lyrics.backgroundColor = [UIColor clearColor];
         self.lyrics.editable = NO;
         self.lyrics.scrollEnabled = NO;
@@ -39,6 +59,8 @@ static BOOL selectableLyrics = YTMU(@"YTMUltimateIsEnabled") && YTMU(@"selectabl
         YTFormattedStringLabel *lyrics = [self valueForKey:@"_descriptionLabel"];
         lyrics.userInteractionEnabled = YES;
         lyrics.hidden = YES;
+        
+        // Use the manually implemented getter/setter
         self.lyrics.font = lyrics.font;
         self.lyrics.textColor = lyrics.textColor;
         self.lyrics.attributedText = lyrics.attributedText;
@@ -50,6 +72,7 @@ static BOOL selectableLyrics = YTMU(@"YTMUltimateIsEnabled") && YTMU(@"selectabl
 
     if (selectableLyrics) {
         YTFormattedStringLabel *lyrics = [self valueForKey:@"_descriptionLabel"];
+        // Use the manually implemented getter/setter
         self.lyrics.frame = lyrics.frame;
     }
 }

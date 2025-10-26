@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <objc/runtime.h> // ADDED: Required for associated objects
 #import "Headers/Localization.h"
 #import "Headers/YTMToastController.h"
 #import "Headers/YTPlayerViewController.h"
@@ -7,8 +8,25 @@
 #define ytmuBool(key) [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"][key] boolValue]
 #define ytmuInt(key) [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"][key] integerValue]
 
+// Define a static key for associated objects
+static void *kSponsorBlockValuesKey = &kSponsorBlockValuesKey;
+
 %hook YTPlayerViewController
-%property (nonatomic, strong) NSMutableDictionary *sponsorBlockValues;
+
+// REMOVED: %property (nonatomic, strong) NSMutableDictionary *sponsorBlockValues;
+
+// ADDED: Manual getter implementation using associated objects
+%new
+- (NSMutableDictionary *)sponsorBlockValues {
+    return objc_getAssociatedObject(self, kSponsorBlockValuesKey);
+}
+
+// ADDED: Manual setter implementation using associated objects
+%new
+- (void)setSponsorBlockValues:(NSMutableDictionary *)sponsorBlockValues {
+    objc_setAssociatedObject(self, kSponsorBlockValuesKey, sponsorBlockValues, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 
 - (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
     %orig;
