@@ -13,12 +13,14 @@
     [self.view addSubview:self.tableView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.tableView.widthAnchor constraintEqualToAnchor:self.view.widthAnchor],
-        [self.tableView.heightAnchor constraintEqualToAnchor:self.view.heightAnchor],
-        [self.tableView.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor]
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]
     ]];
 }
+
+#pragma mark - Table View
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return 4;
@@ -26,7 +28,7 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 7;
-    if (section == 1) return 2; // Added Crossfade row
+    if (section == 1) return 2; // Audio/Video and Crossfade
     if (section == 2) return 3;
     if (section == 3) return 2;
     return 0;
@@ -36,9 +38,11 @@
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSDictionary *YTMUltimateDict = [defaults dictionaryForKey:@"YTMUltimate"];
+    if (!YTMUltimateDict) YTMUltimateDict = @{};
 
     UITableViewCell *cell;
 
+    // --- Section 1: Audio/Video default mode ---
     if (indexPath.section == 1 && indexPath.row == 0) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"avCell"];
         cell.textLabel.text = LOC(@"AV_DEFAULT_MODE");
@@ -50,14 +54,17 @@
         return cell;
     }
 
+    // --- Section 1: Crossfade slider ---
     if (indexPath.section == 1 && indexPath.row == 1) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"crossfadeCell"];
         cell.textLabel.text = LOC(@"CROSSFADE");
         cell.detailTextLabel.text = LOC(@"CROSSFADE_DESC");
         cell.detailTextLabel.numberOfLines = 0;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
 
-        UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 240, 44)];
-        container.translatesAutoresizingMaskIntoConstraints = NO;
+        // Container for slider + label
+        UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 44)];
+        container.userInteractionEnabled = YES;
 
         UISlider *slider = [[UISlider alloc] initWithFrame:CGRectZero];
         slider.minimumValue = 1.0;
@@ -65,48 +72,50 @@
         NSInteger currentVal = [YTMUltimateDict[@"crossfadeSeconds"] integerValue];
         if (currentVal <= 0) currentVal = 5;
         slider.value = currentVal;
-        slider.translatesAutoresizingMaskIntoConstraints = NO;
-        [slider addTarget:self action:@selector(crossfadeSliderChanged:) forControlEvents:UIControlEventValueChanged];
         slider.tag = 12345;
+        [slider addTarget:self action:@selector(crossfadeSliderChanged:) forControlEvents:UIControlEventValueChanged];
 
         UILabel *valLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        valLabel.translatesAutoresizingMaskIntoConstraints = NO;
         valLabel.text = [NSString stringWithFormat:@"%lds", (long)lround(slider.value)];
         valLabel.textAlignment = NSTextAlignmentRight;
-        valLabel.adjustsFontSizeToFitWidth = YES;
         valLabel.tag = 12346;
+        valLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
 
         [container addSubview:slider];
         [container addSubview:valLabel];
+        slider.translatesAutoresizingMaskIntoConstraints = NO;
+        valLabel.translatesAutoresizingMaskIntoConstraints = NO;
 
         [NSLayoutConstraint activateConstraints:@[
             [slider.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
             [slider.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
-            [slider.trailingAnchor constraintEqualToAnchor:valLabel.leadingAnchor constant:-8],
+            [valLabel.leadingAnchor constraintEqualToAnchor:slider.trailingAnchor constant:8],
             [valLabel.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
             [valLabel.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
-            [valLabel.widthAnchor constraintEqualToConstant:44]
+            [valLabel.widthAnchor constraintEqualToConstant:40]
         ]];
 
         cell.accessoryView = container;
         return cell;
     }
 
-    // fallback for other sections (leave existing logic)
+    // --- Fallback ---
     cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"defaultCell"];
     cell.textLabel.text = @"";
     return cell;
 }
 
-#pragma mark - Slider handler
+#pragma mark - Crossfade slider logic
 
 - (void)crossfadeSliderChanged:(UISlider *)slider {
     NSInteger rounded = lround(slider.value);
+
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
     if (!dict) dict = [NSMutableDictionary new];
     dict[@"crossfadeSeconds"] = @(rounded);
     [defaults setObject:dict forKey:@"YTMUltimate"];
+    [defaults synchronize];
 
     UIView *container = slider.superview;
     for (UIView *v in container.subviews) {
@@ -116,14 +125,14 @@
     }
 }
 
-#pragma mark - Existing handlers
+#pragma mark - Switch / Segmented handlers
 
 - (void)toggleSwitch:(UISwitch *)sender {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
-    // keep it simple; if you had original logic, put it back here
     dict[@"someKey"] = @(sender.isOn);
     [defaults setObject:dict forKey:@"YTMUltimate"];
+    [defaults synchronize];
 }
 
 - (void)controlSelect:(UISegmentedControl *)sender {
@@ -131,9 +140,10 @@
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
     dict[@"audioVideoMode"] = @(sender.selectedSegmentIndex);
     [defaults setObject:dict forKey:@"YTMUltimate"];
+    [defaults synchronize];
 }
 
-#pragma mark - Keyboard toolbar fix
+#pragma mark - Keyboard toolbar
 
 - (UIView *)KBToolbar:(UITextField *)textField {
     UIToolbar *toolbar = [[UIToolbar alloc] init];
