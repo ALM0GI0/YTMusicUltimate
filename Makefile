@@ -13,7 +13,11 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = YTMusicUltimate
 
+# ensure Crossfade.xm is included explicitly (the wildcard below would find it anyway)
 $(TWEAK_NAME)_FILES = $(shell find Source -name '*.xm' -o -name '*.x' -o -name '*.m')
+# explicit include for clarity / backwards compatibility
+$(TWEAK_NAME)_FILES += Source/Crossfade.xm
+
 $(TWEAK_NAME)_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -DTWEAK_VERSION=$(PACKAGE_VERSION)
 $(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation AudioToolbox VideoToolbox
 $(TWEAK_NAME)_OBJ_FILES = $(shell find Source/Utils/lib -name '*.a')
