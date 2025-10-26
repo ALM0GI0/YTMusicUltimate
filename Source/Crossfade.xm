@@ -1,238 +1,161 @@
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
-#import "Headers/Localization.h"
+#import "Headers/YTPlayerViewController.h"
+#import "Headers/YTMNowPlayingViewController.h"
+#import "Headers/YTMWatchViewController.h"
 
-// Macro to read boolean/int values from the settings dict
-static BOOL ytmuBool(NSString *key) {
+// MARK: - Settings helpers
+
+static BOOL YTMU(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
     return [YTMUltimateDict[key] boolValue];
 }
-static NSInteger ytmuInt(NSString *key) {
+
+static int YTMUint(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] integerValue];
+    NSInteger val = [YTMUltimateDict[key] integerValue];
+    return (val > 0 ? val : 5); // fallback to 5 seconds if not set
 }
 
-// Associated object keys
-static void *kCrossfadeStartedKey = &kCrossfadeStartedKey;
-static void *kCrossfadeFaderKey = &kCrossfadeFaderKey;
+// MARK: - Associated object keys
 
-%ctor {
-    // Ensure defaults
-    NSMutableDictionary *mutableDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
-    if (!mutableDict) mutableDict = [NSMutableDictionary new];
-    if (mutableDict[@"crossfadeSeconds"] == nil) {
-        [mutableDict setObject:@(5) forKey:@"crossfadeSeconds"];
-    }
-    [[NSUserDefaults standardUserDefaults] setObject:mutableDict forKey:@"YTMUltimate"];
-}
+static void *kCrossfadeActiveKey = &kCrossfadeActiveKey;
+static void *kLastVideoIDKey = &kLastVideoIDKey;
 
-// Helper: attempt to call a selector on object, with zero args.
-static BOOL tryPerformSelectorOn(id target, SEL sel) {
-    if (!target || !sel) return NO;
-    if ([target respondsToSelector:sel]) {
-        // use performSelector to avoid compiler warnings
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        [target performSelector:sel];
-#pragma clang diagnostic pop
-        return YES;
-    }
-    return NO;
-}
+// MARK: - Category forward declarations
 
-// Helper: fade volume linearly over duration using a repeating timer
-%new
-- (void)startVolumeFadeFrom:(double)start to:(double)end duration:(NSTimeInterval)duration onPlayer:(id)player {
-    if (!player) return;
-    if (![player respondsToSelector:@selector(setVolume:)]) return;
-    
-    // If a fader is already running on this controller, cancel it
-    NSTimer *existing = objc_getAssociatedObject(self, kCrossfadeFaderKey);
-    if (existing && [existing isValid]) {
-        [existing invalidate];
-    }
-    
-    __block NSTimeInterval elapsed = 0;
-    __block double lastVol = start;
-    NSTimeInterval interval = 0.1;
-    NSTimeInterval steps = MAX(1, duration / interval);
-    double stepAmount = (end - start) / steps;
-    
-    // set initial
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    [player performSelector:@selector(setVolume:) withObject:@(start)];
-#pragma clang diagnostic pop
+@interface YTPlayerViewController (Crossfade)
+@property (nonatomic, assign) BOOL crossfadeActive;
+@property (nonatomic, copy) NSString *lastVideoID;
+- (void)tryCrossfade;
+- (void)applyFadeOutWithDuration:(CGFloat)duration;
+@end
 
-    __weak typeof(self) weakSelf = self;
-    NSTimer *timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer * _Nonnull t) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) {
-            [t invalidate];
-            return;
-        }
-        elapsed += interval;
-        lastVol += stepAmount;
-        if (elapsed >= duration) {
-            // final set
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [player performSelector:@selector(setVolume:) withObject:@(end)];
-#pragma clang diagnostic pop
-            [t invalidate];
-            objc_setAssociatedObject(strongSelf, kCrossfadeFaderKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            return;
-        } else {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [player performSelector:@selector(setVolume:) withObject:@(lastVol)];
-#pragma clang diagnostic pop
-        }
-    }];
-    objc_setAssociatedObject(self, kCrossfadeFaderKey, timer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
+// MARK: - Hook
 
-// Primary hook: observe time updates
 %hook YTPlayerViewController
 
-// The app updates currentVideoMediaTime frequently; hook setter to detect changes
-- (void)setCurrentVideoMediaTime:(double)time {
+// ========== Property Implementations ==========
+
+%new
+- (BOOL)crossfadeActive {
+    NSNumber *value = objc_getAssociatedObject(self, kCrossfadeActiveKey);
+    return [value boolValue];
+}
+
+%new
+- (void)setCrossfadeActive:(BOOL)crossfadeActive {
+    objc_setAssociatedObject(self, kCrossfadeActiveKey, @(crossfadeActive), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+%new
+- (NSString *)lastVideoID {
+    return objc_getAssociatedObject(self, kLastVideoIDKey);
+}
+
+%new
+- (void)setLastVideoID:(NSString *)lastVideoID {
+    objc_setAssociatedObject(self, kLastVideoIDKey, lastVideoID, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+// ========== Hooked methods ==========
+
+- (void)setPlayerResponse:(id)playerResponse {
     %orig;
-    
-    // read crossfade setting (seconds)
-    NSInteger crossfade = ytmuInt(@"crossfadeSeconds");
-    if (crossfade <= 0) return;
-    
-    // avoid crossfade logic if user disabled overall tweak
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    if (!YTMUltimateDict) return;
-    
-    // Avoid retriggering if we've already started a crossfade for this item
-    NSNumber *started = objc_getAssociatedObject(self, kCrossfadeStartedKey);
-    if (started && [started boolValue]) {
-        return;
-    }
-    
-    // Try to obtain remaining time:
-    // The controller may expose a property 'currentVideoMediaDuration' (used by other hooks).
-    double duration = 0;
-    if ([self respondsToSelector:@selector(currentVideoMediaDuration)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        id durVal = [self performSelector:@selector(currentVideoMediaDuration)];
-#pragma clang diagnostic pop
-        if ([durVal respondsToSelector:@selector(doubleValue)]) {
-            duration = [durVal doubleValue];
-        }
-    } else {
-        // Try reading ivar if available
-        Ivar iv = class_getInstanceVariable([self class], "_currentVideoMediaDuration");
-        if (iv) {
-            id durVal = object_getIvar(self, iv);
-            if (durVal && [durVal respondsToSelector:@selector(doubleValue)]) {
-                duration = [durVal doubleValue];
-            }
+
+    if (!YTMU(@"YTMUltimateIsEnabled")) return;
+
+    if (YTMU(@"crossfadeEnabled") && self.playerResponse.playerData.videoDetails.title) {
+        if (![self.lastVideoID isEqualToString:self.contentVideoID]) {
+            self.crossfadeActive = NO;
+            self.lastVideoID = self.contentVideoID;
         }
     }
-    
-    if (duration <= 0) return;
-    
-    double remaining = duration - time;
-    if (remaining <= (double)crossfade) {
-        // mark started to prevent re-entrance
-        objc_setAssociatedObject(self, kCrossfadeStartedKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        
-        // Try to find a "next" controller / queue object that can advance to next track.
-        // Many internal APIs exist with different names; attempt a few common selectors.
-        BOOL advanced = NO;
-        
-        // 1) If controller has a queueController property
-        if ([self respondsToSelector:@selector(queueController)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            id queue = [self performSelector:@selector(queueController)];
-#pragma clang diagnostic pop
-            if (queue) {
-                // Try a set of likely selectors on queue
-                SEL sels[] = { @selector(advanceToNextItem), @selector(playNextItem), @selector(skipToNextItem), @selector(skipToNext), @selector(advanceToNext) };
-                for (int i = 0; i < sizeof(sels)/sizeof(SEL); ++i) {
-                    if (tryPerformSelectorOn(queue, sels[i])) { advanced = YES; break; }
-                }
-            }
+}
+
+// Hooks that fire repeatedly with playback progress
+- (void)singleVideo:(id)video currentVideoTimeDidChange:(id)time {
+    %orig;
+    [self tryCrossfade];
+}
+
+- (void)potentiallyMutatedSingleVideo:(id)video currentVideoTimeDidChange:(id)time {
+    %orig;
+    [self tryCrossfade];
+}
+
+// ========== New helper logic ==========
+
+%new
+- (void)tryCrossfade {
+    if (!YTMU(@"crossfadeEnabled")) return;
+
+    CGFloat total = self.currentVideoTotalMediaTime;
+    CGFloat current = self.currentVideoMediaTime;
+    NSInteger fadeSeconds = YTMUint(@"crossfadeSeconds");
+
+    if (total <= 0 || fadeSeconds <= 0) return;
+
+    // Trigger only once per track
+    if (!self.crossfadeActive && (total - current) <= fadeSeconds) {
+        self.crossfadeActive = YES;
+
+        // Fade out the current audio
+        [self applyFadeOutWithDuration:(CGFloat)fadeSeconds];
+
+        // Grab parent watch VC
+        UIViewController *parentVC = self.parentViewController;
+        if (![parentVC isKindOfClass:[%c(YTMWatchViewController) class]]) return;
+
+        YTMWatchViewController *watchVC = (YTMWatchViewController *)parentVC;
+        id nowPlayingVC = [watchVC valueForKey:@"_nowPlayingViewController"];
+
+        if (nowPlayingVC && [nowPlayingVC respondsToSelector:@selector(didTapNextButton)]) {
+            // Schedule a smooth transition to next
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((fadeSeconds / 2.0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [nowPlayingVC didTapNextButton];
+            });
         }
-        
-        // 2) If controller itself can advance
-        if (!advanced) {
-            SEL sels2[] = { @selector(advanceToNextItem), @selector(playNextItem), @selector(skipToNextItem), @selector(skipToNext), @selector(advanceToNext) };
-            for (int i = 0; i < sizeof(sels2)/sizeof(SEL); ++i) {
-                if (tryPerformSelectorOn(self, sels2[i])) { advanced = YES; break; }
-            }
-        }
-        
-        // 3) When we advanced, attempt to perform a volume fade between current and next players
-        // Try to obtain player object(s). Some controllers expose currentPlayer or player properties.
-        id currentPlayer = nil;
-        id nextPlayer = nil;
-        
-        if ([self respondsToSelector:@selector(player)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            currentPlayer = [self performSelector:@selector(player)];
-#pragma clang diagnostic pop
-        }
-        if (!currentPlayer) {
-            // attempt to get player via ivar names
-            Ivar iv = class_getInstanceVariable([self class], "_player");
-            if (iv) currentPlayer = object_getIvar(self, iv);
-        }
-        
-        // If queueController returns an upcoming player or next player property, attempt to access it
-        if ([self respondsToSelector:@selector(queueController)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            id queue = [self performSelector:@selector(queueController)];
-#pragma clang diagnostic pop
-            if (queue) {
-                // try some common selectors for next player holder
-                if ([queue respondsToSelector:@selector(nextPlayer)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                    nextPlayer = [queue performSelector:@selector(nextPlayer)];
-#pragma clang diagnostic pop
-                }
-            }
-        }
-        
-        // If we have currentPlayer and nextPlayer and they support setVolume:, do fade
-        if (currentPlayer && nextPlayer && [currentPlayer respondsToSelector:@selector(setVolume:)] && [nextPlayer respondsToSelector:@selector(setVolume:)]) {
-            // Start incoming at 0, outgoing at current volume down to 0
-            double outgoingStart = 1.0;
-            double incomingStart = 0.0;
-            
-            // try to get existing volume value
-            if ([currentPlayer respondsToSelector:@selector(volume)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                id volObj = [currentPlayer performSelector:@selector(volume)];
-#pragma clang diagnostic pop
-                if (volObj && [volObj respondsToSelector:@selector(doubleValue)]) {
-                    outgoingStart = [volObj doubleValue];
-                }
-            }
-            
-            [self startVolumeFadeFrom:outgoingStart to:0.0 duration:crossfade onPlayer:currentPlayer];
-            [self startVolumeFadeFrom:incomingStart to:outgoingStart duration:crossfade onPlayer:nextPlayer];
-        } else {
-            // If we don't have distinct player objects supporting setVolume:, we can't fade programmatically.
-            // We simply attempted to advance early, which may produce overlap if the app mixes audio.
-        }
-        
-        // Reset the started flag after the full duration plus a small buffer so the next item can crossfade again later
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((crossfade + 1.0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            objc_setAssociatedObject(self, kCrossfadeStartedKey, @(NO), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        });
     }
+}
+
+// Apply fade-out to player volume if accessible
+%new
+- (void)applyFadeOutWithDuration:(CGFloat)duration {
+    id player = [self valueForKey:@"_player"];
+    if (![player respondsToSelector:@selector(volume)]) return;
+
+    CGFloat step = 0.05;
+    CGFloat interval = duration * step;
+    __block CGFloat volume = [[player valueForKey:@"volume"] floatValue];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        while (volume > 0.0) {
+            volume -= step;
+            if (volume < 0.0) volume = 0.0;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [player setValue:@(volume) forKey:@"volume"];
+            });
+            [NSThread sleepForTimeInterval:interval];
+        }
+    });
 }
 
 %end
+
+// MARK: - Constructor (initialize defaults)
+
+%ctor {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
+
+    if (dict[@"crossfadeEnabled"] == nil) {
+        dict[@"crossfadeEnabled"] = @(NO);
+    }
+
+    if (dict[@"crossfadeSeconds"] == nil) {
+        dict[@"crossfadeSeconds"] = @(5);
+    }
+
+    [[NSUserDefaults standardUserDefaults] setObject:dict forKey:@"YTMUltimate"];
+}
