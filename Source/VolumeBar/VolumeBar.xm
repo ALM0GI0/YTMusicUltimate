@@ -1,4 +1,5 @@
 #include "GSVolBar.h"
+#import <objc/runtime.h> // ADDED: Required for associated objects
 
 static BOOL YTMU(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
@@ -11,13 +12,30 @@ static BOOL volumeBar = YTMU(@"YTMUltimateIsEnabled") && YTMU(@"volBar");
 @property (readonly, nonatomic) BOOL isExpanded;
 @property (nonatomic, strong) UIView *tabView;
 @property (nonatomic) long long currentLayout;
-@property (nonatomic, strong) GSVolBar *volumeBar;
+@property (nonatomic, strong) GSVolBar *volumeBar; // Keep this declaration for the compiler
 
 - (void)updateVolBarVisibility;
 @end
 
+// Define a static key for associated objects
+static void *kVolumeBarKey = &kVolumeBarKey;
+
 %hook YTMWatchView
-%property (nonatomic, strong) GSVolBar *volumeBar;
+
+// REMOVED: %property (nonatomic, strong) GSVolBar *volumeBar;
+
+// ADDED: Manual getter implementation using associated objects
+%new
+- (GSVolBar *)volumeBar {
+    return objc_getAssociatedObject(self, kVolumeBarKey);
+}
+
+// ADDED: Manual setter implementation using associated objects
+%new
+- (void)setVolumeBar:(GSVolBar *)volumeBar {
+    objc_setAssociatedObject(self, kVolumeBarKey, volumeBar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 
 - (instancetype)initWithColorScheme:(id)scheme {
     self = %orig;
