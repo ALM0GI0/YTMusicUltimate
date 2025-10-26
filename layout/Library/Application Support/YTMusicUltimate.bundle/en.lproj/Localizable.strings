@@ -33,7 +33,7 @@
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Automatically skip sponsored/offtopic segments";
 "SEEK_BUTTONS" = "Replace next/previous with forward and backward buttons";
-"SEEK_TIME_FOOTER" = "Select a seek time in seconds\n\nDefaults:...xt and previous tracks available by long-pressing the buttons.";
+"SEEK_TIME_FOOTER" = "Select a seek time in seconds\n\nDefaults: next and previous tracks available by long-pressing the buttons.";
 "DEFAULT" = "Default";
 
 "THEME_SETTINGS" = "Theme options";
@@ -45,7 +45,7 @@
 "LOW_CONTRAST_DESC" = "Lower contrast for text and buttons";
 
 "NAVBAR_SETTINGS" = "Navigation bar options";
-"DONT_STI" = "Don't stick..."; /* keep your existing strings above as-is */
+"DONT_STI" = "Don't stick...";
 
 /* --- Added Crossfade strings --- */
 "CROSSFADE" = "Crossfade";
